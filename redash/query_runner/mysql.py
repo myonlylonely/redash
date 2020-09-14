@@ -43,6 +43,13 @@ types_map = {
     254: TYPE_STRING,
 }
 
+def _replace_in_dict(input, encode, decode):
+    for key in list(input.keys()):
+        value = input[key]
+        if isinstance(value, dict):
+            _replace_in_dict(value, encode, decode)
+        elif isinstance(value, str):
+            input[key] = value.encode(encode, 'ignore').decode(decode, 'ignore')
 
 class Result(object):
     def __init__(self):
@@ -66,6 +73,8 @@ class Mysql(BaseSQLQueryRunner):
                 "passwd": {"type": "string", "title": "Password"},
                 "db": {"type": "string", "title": "Database name"},
                 "port": {"type": "number", "default": 3306},
+                "charset": {"type": "string", "default": "utf8"},
+                "decode": {"type": "string", "default": ""},
             },
             "order": ["host", "port", "user", "passwd", "db"],
             "required": ["db"],
@@ -177,6 +186,10 @@ class Mysql(BaseSQLQueryRunner):
     def _run_query(self, query, user, connection, r, ev):
         try:
             cursor = connection.cursor()
+
+            if self.configuration.get("decode", "") != "":
+                query = query.encode(self.configuration.get("decode", ""), 'ignore').decode(self.configuration.get("charset", "utf8"), 'ignore')
+
             logger.debug("MySQL running query: %s", query)
             cursor.execute(query)
 
@@ -193,12 +206,23 @@ class Mysql(BaseSQLQueryRunner):
                 columns = self.fetch_columns(
                     [(i[0], types_map.get(i[1], None)) for i in desc]
                 )
+
+                if self.configuration.get("decode", "") != "":
+                    for column in columns:
+                        _replace_in_dict(column, self.configuration.get("charset", "utf8"), self.configuration.get("decode", ""))
+
                 rows = [
                     dict(zip((column["name"] for column in columns), row))
                     for row in data
                 ]
 
                 data = {"columns": columns, "rows": rows}
+
+                if self.configuration.get("decode", "") != "":
+                    for item in rows:
+                        _replace_in_dict(item, self.configuration.get("charset", "utf8"), self.configuration.get("decode", ""))
+
+
                 r.json_data = json_dumps(data)
                 r.error = None
             else:
